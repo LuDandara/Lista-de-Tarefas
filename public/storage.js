@@ -1,145 +1,164 @@
-// Gerenciador de Banco de Dados / Persistência
-// Suporta: Firebase Firestore com fallback e diagnóstico
+// Gerenciador de Banco de Dados / Persistência Firestore pareado por UserID
 import { firebaseConfig, COLLECTION_NAME } from "./firebase-config.js";
-
-const LOCAL_STORAGE_KEY = "tasky_tasks_v2";
+import { getCurrentUser, getAuthInstance } from "./auth.js?v=2";
 
 let db = null;
-let useFirestore = false;
+let firestoreModule = null;
+let unsubscribeSnapshot = null;
 let onDataCallback = null;
 
-// Módulos do Firestore em cache para evitar múltiplos dynamic imports
-let firestoreModule = null;
 
-export async function initDatabase(onUpdate) {
+// Inicializa a conexão com o Firestore para o usuário autenticado
+export async function initDatabaseForUser(user, onUpdate, onError) {
   onDataCallback = onUpdate;
-  const isDefaultKey = !firebaseConfig.apiKey || firebaseConfig.apiKey === "SUA_API_KEY";
 
-  if (!isDefaultKey) {
-    try {
-      console.log("Iniciando conexão com o Firebase Firestore...");
-      const { initializeApp } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js");
-      firestoreModule = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+  // Se já havia um listener anterior ativo, cancela
+  if (unsubscribeSnapshot) {
+    unsubscribeSnapshot();
+    unsubscribeSnapshot = null;
+  }
 
-      const app = initializeApp(firebaseConfig);
-      db = firestoreModule.getFirestore(app);
-      useFirestore = true;
-      console.log("Firebase App e Firestore instanciados com sucesso!");
+  if (!user || !user.uid) {
+    if (onDataCallback) onDataCallback([], true);
+    return;
+  }
 
-      const q = firestoreModule.query(
-        firestoreModule.collection(db, COLLECTION_NAME),
-        firestoreModule.orderBy("createdAt", "desc")
-      );
+  try {
+    const { initializeApp, getApps, getApp } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js");
+    firestoreModule = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
 
-      // Ouvinte em tempo real com tratamento detalhado de erros
-      firestoreModule.onSnapshot(q, (snapshot) => {
-        const loadedTasks = [];
-        snapshot.forEach((docSnap) => {
-          loadedTasks.push({ id: docSnap.id, ...docSnap.data() });
-        });
-        console.log(`[Firestore] ${loadedTasks.length} tarefas carregadas em tempo real.`);
-        if (onDataCallback) onDataCallback(loadedTasks, true);
-      }, (err) => {
-        console.error("Erro no listener do Firestore (onSnapshot):", err);
-        if (err.code === "permission-denied") {
-          console.warn("Regras de segurança do Firestore bloquearam a leitura. Verifique se o banco está em modo de teste ou se as regras permitem 'read, write: if true;'.");
-        }
-        // Ativa fallback para manter a usabilidade da aplicação
-        startLocalStorage();
+    const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+    db = firestoreModule.getFirestore(app);
+
+    // Consulta filtrando apenas pelo UserID (uid gerado pelo Firebase).
+    // A remoção de orderBy evita a exigência de índice composto composto no Firestore.
+    // A ordenação é realizada no lado do cliente (client-side) com JavaScript.
+    const q = firestoreModule.query(
+      firestoreModule.collection(db, COLLECTION_NAME),
+      firestoreModule.where("userId", "==", user.uid)
+    );
+
+    // Ouvinte em tempo real
+    unsubscribeSnapshot = firestoreModule.onSnapshot(q, (snapshot) => {
+      const loadedTasks = [];
+      snapshot.forEach((docSnap) => {
+        loadedTasks.push({ id: docSnap.id, ...docSnap.data() });
       });
 
-      return;
-    } catch (err) {
-      console.error("Erro fatal ao inicializar Firebase SDK:", err);
-    }
-  } else {
-    console.warn("Chaves do Firebase em firebase-config.js ainda estão com valor padrão. Usando LocalStorage.");
-  }
+      // Ordenação decrescente por createdAt realizada no client-side
+      loadedTasks.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 
-  startLocalStorage();
-}
-
-function startLocalStorage() {
-  useFirestore = false;
-  console.log("Armazenamento local (LocalStorage) ativo.");
-  const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
-  let tasks = [];
-  if (stored) {
-    try {
-      tasks = JSON.parse(stored);
-    } catch (e) {
-      tasks = [];
-    }
-  }
-  if (onDataCallback) onDataCallback(tasks, false);
-}
-
-export async function dbAddTask(taskData) {
-  if (useFirestore && db && firestoreModule) {
-    try {
-      const docRef = await firestoreModule.addDoc(
-        firestoreModule.collection(db, COLLECTION_NAME),
-        taskData
-      );
-      console.log("[Firestore] Tarefa salva com sucesso com ID:", docRef.id);
-      return { id: docRef.id, ...taskData };
-    } catch (e) {
-      console.error("[Firestore] Erro ao salvar tarefa:", e);
-      if (e.code === "permission-denied") {
-        alert("Atenção: O Firestore rejeitou a gravação por falta de permissão (permission-denied). Configure as regras de segurança no Firebase Console para permitir leitura e escrita.");
+      console.log(`[Firestore] ${loadedTasks.length} tarefas carregadas para o usuário:`, user.uid);
+      if (onDataCallback) onDataCallback(loadedTasks, true);
+    }, (err) => {
+      console.error("Erro no listener do Firestore (onSnapshot):", err);
+      // Notifica o callback de erro para que a interface não fique travada
+      if (onError) {
+        onError(err);
+      } else if (onDataCallback) {
+        // Fallback: libera a tela com lista vazia
+        onDataCallback([], true);
       }
-    }
-  }
+    });
 
-  // Fallback LocalStorage
-  const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
-  let tasks = stored ? JSON.parse(stored) : [];
-  const newTask = {
-    id: "task_" + Date.now() + "_" + Math.random().toString(36).substr(2, 4),
-    ...taskData
-  };
-  tasks.unshift(newTask);
-  localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(tasks));
-  if (onDataCallback) onDataCallback(tasks, false);
-  return newTask;
+  } catch (err) {
+    console.error("Erro ao inicializar Firestore para usuário:", err);
+    if (onError) onError(err);
+    else if (onDataCallback) onDataCallback([], true);
+  }
 }
 
+// Para a sincronização ao deslogar
+export function stopDatabaseSync() {
+  if (unsubscribeSnapshot) {
+    unsubscribeSnapshot();
+    unsubscribeSnapshot = null;
+  }
+  db = null;
+  if (onDataCallback) onDataCallback([], true);
+}
+
+// Garante que o Firestore esteja pronto para gravação/leitura
+async function ensureFirestore() {
+  if (db && firestoreModule) return { db, firestoreModule };
+  const { initializeApp, getApps, getApp } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js");
+  firestoreModule = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
+  const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+  db = firestoreModule.getFirestore(app);
+  return { db, firestoreModule };
+}
+
+// 1. Adicionar Tarefa vinculada ao UserID
+export async function dbAddTask(taskData) {
+  let user = getCurrentUser();
+  if (!user) {
+    const { auth } = await getAuthInstance();
+    user = auth.currentUser;
+  }
+  if (!user) throw new Error("Usuário não autenticado.");
+
+  const { db: firestoreDb, firestoreModule: fsMod } = await ensureFirestore();
+
+  try {
+    const payload = {
+      ...taskData,
+      userId: user.uid, // Chave primária de vínculo do usuário
+      createdAt: Date.now()
+    };
+
+    const docRef = await fsMod.addDoc(
+      fsMod.collection(firestoreDb, COLLECTION_NAME),
+      payload
+    );
+    console.log("[Firestore] Tarefa salva com sucesso:", docRef.id);
+    return { id: docRef.id, ...payload };
+  } catch (e) {
+    console.error("[Firestore] Erro ao salvar tarefa:", e);
+    throw e;
+  }
+}
+
+// 2. Atualizar Tarefa
 export async function dbUpdateTask(id, updateData) {
-  if (useFirestore && db && firestoreModule) {
-    try {
-      const ref = firestoreModule.doc(db, COLLECTION_NAME, id);
-      await firestoreModule.updateDoc(ref, updateData);
-      console.log("[Firestore] Tarefa atualizada:", id);
-      return;
-    } catch (e) {
-      console.error("[Firestore] Erro ao atualizar tarefa:", e);
-    }
+  let user = getCurrentUser();
+  if (!user) {
+    const { auth } = await getAuthInstance();
+    user = auth.currentUser;
   }
+  if (!user) throw new Error("Usuário não autenticado.");
 
-  // Fallback LocalStorage
-  const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
-  let tasks = stored ? JSON.parse(stored) : [];
-  tasks = tasks.map(t => t.id === id ? { ...t, ...updateData } : t);
-  localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(tasks));
-  if (onDataCallback) onDataCallback(tasks, false);
+  const { db: firestoreDb, firestoreModule: fsMod } = await ensureFirestore();
+
+  try {
+    const ref = fsMod.doc(firestoreDb, COLLECTION_NAME, id);
+    await fsMod.updateDoc(ref, updateData);
+    console.log("[Firestore] Tarefa atualizada:", id);
+    return;
+  } catch (e) {
+    console.error("[Firestore] Erro ao atualizar tarefa:", e);
+    throw e;
+  }
 }
 
+// 3. Deletar Tarefa
 export async function dbDeleteTask(id) {
-  if (useFirestore && db && firestoreModule) {
-    try {
-      const ref = firestoreModule.doc(db, COLLECTION_NAME, id);
-      await firestoreModule.deleteDoc(ref);
-      console.log("[Firestore] Tarefa deletada:", id);
-      return;
-    } catch (e) {
-      console.error("[Firestore] Erro ao deletar tarefa:", e);
-    }
+  let user = getCurrentUser();
+  if (!user) {
+    const { auth } = await getAuthInstance();
+    user = auth.currentUser;
   }
+  if (!user) throw new Error("Usuário não autenticado.");
 
-  // Fallback LocalStorage
-  const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
-  let tasks = stored ? JSON.parse(stored) : [];
-  tasks = tasks.filter(t => t.id !== id);
-  localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(tasks));
-  if (onDataCallback) onDataCallback(tasks, false);
+  const { db: firestoreDb, firestoreModule: fsMod } = await ensureFirestore();
+
+  try {
+    const ref = fsMod.doc(firestoreDb, COLLECTION_NAME, id);
+    await fsMod.deleteDoc(ref);
+    console.log("[Firestore] Tarefa deletada:", id);
+    return;
+  } catch (e) {
+    console.error("[Firestore] Erro ao deletar tarefa:", e);
+    throw e;
+  }
 }
+

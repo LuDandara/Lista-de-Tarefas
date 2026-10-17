@@ -1,4 +1,15 @@
-import { initDatabase, dbAddTask, dbUpdateTask, dbDeleteTask } from "./storage.js";
+import { initDatabaseForUser, stopDatabaseSync, dbAddTask, dbUpdateTask, dbDeleteTask } from "./storage.js?v=2";
+import { 
+  observeAuthState, 
+  loginWithEmail, 
+  registerWithEmail, 
+  loginWithGoogle, 
+  resetPassword, 
+  resendVerificationEmail, 
+  checkEmailVerificationStatus, 
+  logoutUser 
+} from "./auth.js?v=2";
+
 
 // Estado da aplicação
 let tasks = [];
@@ -98,19 +109,39 @@ async function handleAddTask(title, dueDate = "") {
     createdAt: Date.now()
   };
 
-  await dbAddTask(newTaskData);
-  showToast("Tarefa criada com sucesso!");
+  try {
+    await dbAddTask(newTaskData);
+    showToast("Tarefa criada com sucesso!");
+  } catch (err) {
+    console.error("Falha ao criar tarefa:", err);
+    if (err.code === "permission-denied") {
+      alert("Acesso negado: confirme se o seu e-mail foi verificado para liberar a gravação no Firestore.");
+    } else {
+      showToast("Erro ao salvar tarefa no Firestore.");
+    }
+  }
 }
 
 async function handleUpdateTask(id, updateData) {
-  await dbUpdateTask(id, updateData);
-  showToast("Tarefa atualizada!");
+  try {
+    await dbUpdateTask(id, updateData);
+    showToast("Tarefa atualizada!");
+  } catch (err) {
+    console.error("Falha ao atualizar tarefa:", err);
+    showToast("Erro ao atualizar tarefa.");
+  }
 }
 
 async function handleDeleteTask(id) {
-  await dbDeleteTask(id);
-  showToast("Tarefa excluída.");
+  try {
+    await dbDeleteTask(id);
+    showToast("Tarefa excluída.");
+  } catch (err) {
+    console.error("Falha ao excluir tarefa:", err);
+    showToast("Erro ao excluir tarefa.");
+  }
 }
+
 
 async function handleToggleTaskStatus(id) {
   const task = tasks.find(t => String(t.id) === String(id));
@@ -366,11 +397,380 @@ navItems.forEach(item => {
   });
 });
 
-// Inicialização com Callback de Dados
-initDatabase((loadedTasks, isFirestore) => {
-  tasks = loadedTasks || [];
-  render();
-  if (isFirestore) {
-    showToast("Nuvem Firestore conectada!");
+// ==========================================================================
+// Elementos da Interface de Autenticação e Loading
+// ==========================================================================
+const loadingOverlay = document.getElementById('loading-overlay');
+const loadingText = document.getElementById('loading-text');
+
+const authModal = document.getElementById('auth-modal');
+const authForm = document.getElementById('auth-form');
+const authEmailInput = document.getElementById('auth-email');
+const authPasswordInput = document.getElementById('auth-password');
+const authMainTitle = document.getElementById('auth-main-title');
+const authMainSubtitle = document.getElementById('auth-main-subtitle');
+const btnAuthSubmit = document.getElementById('btn-auth-submit');
+const btnAuthText = document.getElementById('btn-auth-text');
+const btnToggleAuthMode = document.getElementById('btn-toggle-auth-mode');
+const authSwitchText = document.getElementById('auth-switch-text');
+const forgotPasswordRow = document.getElementById('forgot-password-row');
+const btnForgotPassword = document.getElementById('btn-forgot-password');
+const btnGoogleLogin = document.getElementById('btn-google-login');
+const authErrorAlert = document.getElementById('auth-error-alert');
+const authErrorMessage = document.getElementById('auth-error-message');
+
+// Modal Esqueci a Senha
+const resetModal = document.getElementById('reset-modal');
+const resetPasswordForm = document.getElementById('reset-password-form');
+const resetEmailInput = document.getElementById('reset-email');
+const btnCancelReset = document.getElementById('btn-cancel-reset');
+const resetErrorAlert = document.getElementById('reset-error-alert');
+const resetErrorMessage = document.getElementById('reset-error-message');
+const resetSuccessAlert = document.getElementById('reset-success-alert');
+
+// Modal Verificação de E-mail Pendente
+const verificationModal = document.getElementById('verification-modal');
+const verifyEmailDisplay = document.getElementById('verify-email-display');
+const btnCheckVerified = document.getElementById('btn-check-verified');
+const btnResendVerification = document.getElementById('btn-resend-verification');
+const btnVerificationLogout = document.getElementById('btn-verification-logout');
+
+// Área Autenticada e Perfil
+const authenticatedArea = document.getElementById('authenticated-area');
+const userAvatarImg = document.getElementById('user-avatar-img');
+const userDisplayName = document.getElementById('user-display-name');
+const userDisplayEmail = document.getElementById('user-display-email');
+const btnLogout = document.getElementById('btn-logout');
+const btnHeaderLogout = document.getElementById('btn-header-logout');
+
+// Variáveis de Estado de Auth
+let isRegisterMode = false;
+let currentUser = null;
+
+// Funções de Loading Overlay
+function showLoading(text = "Carregando...") {
+  if (loadingOverlay) {
+    if (loadingText) loadingText.textContent = text;
+    loadingOverlay.classList.add('active');
   }
+}
+
+function hideLoading() {
+  if (loadingOverlay) {
+    loadingOverlay.classList.remove('active');
+  }
+}
+
+// Mensagens de Alerta Amigáveis
+function showAuthError(msg = "E-mail ou senha incorretos. Por favor, tente novamente.") {
+  if (authErrorAlert && authErrorMessage) {
+    authErrorMessage.textContent = msg;
+    authErrorAlert.style.display = 'flex';
+  }
+}
+
+function hideAuthError() {
+  if (authErrorAlert) {
+    authErrorAlert.style.display = 'none';
+  }
+}
+
+function showResetError(msg = "E-mail ou senha incorretos. Por favor, tente novamente.") {
+  if (resetErrorAlert && resetErrorMessage) {
+    resetErrorMessage.textContent = msg;
+    resetErrorAlert.style.display = 'flex';
+  }
+}
+
+function hideResetAlerts() {
+  if (resetErrorAlert) resetErrorAlert.style.display = 'none';
+  if (resetSuccessAlert) resetSuccessAlert.style.display = 'none';
+}
+
+// Alternar entre modo Login e modo Cadastro
+function setAuthMode(register) {
+  isRegisterMode = register;
+  hideAuthError();
+  if (isRegisterMode) {
+    authMainTitle.textContent = "Criar Conta";
+    authMainSubtitle.textContent = "Cadastre-se para sincronizar suas tarefas na nuvem.";
+    btnAuthText.textContent = "Cadastrar e Enviar Confirmação";
+    authSwitchText.textContent = "Já possui uma conta?";
+    btnToggleAuthMode.textContent = "Faça Login";
+    if (forgotPasswordRow) forgotPasswordRow.style.display = 'none';
+  } else {
+    authMainTitle.textContent = "Acessar Conta";
+    authMainSubtitle.textContent = "Gerencie suas tarefas diárias com simplicidade e foco.";
+    btnAuthText.textContent = "Entrar";
+    authSwitchText.textContent = "Não tem uma conta?";
+    btnToggleAuthMode.textContent = "Cadastre-se";
+    if (forgotPasswordRow) forgotPasswordRow.style.display = 'flex';
+  }
+}
+
+// Atualizar Informações do Perfil do Usuário na Sidebar
+function updateUserProfileUI(user) {
+  if (!user) return;
+  const name = user.displayName || user.email.split('@')[0];
+  if (userDisplayName) userDisplayName.textContent = name;
+  if (userDisplayEmail) userDisplayEmail.textContent = user.email;
+  if (userAvatarImg) {
+    userAvatarImg.src = user.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=6366f1&color=fff`;
+  }
+}
+
+// Tratamento do Fluxo de Autenticação e Proteção de Rotas/Dados
+async function handleAuthState(user) {
+  currentUser = user;
+
+  if (!user) {
+    // 1. Usuário Não Autenticado -> Exibir Tela de Login e Ocultar Área Autenticada
+    stopDatabaseSync();
+    tasks = [];
+    render();
+    if (authenticatedArea) authenticatedArea.style.display = 'none';
+    if (verificationModal) verificationModal.style.display = 'none';
+    if (resetModal) resetModal.style.display = 'none';
+    if (authModal) authModal.style.display = 'flex';
+    hideLoading();
+    return;
+  }
+
+  // 2. Usuário Autenticado: verificar se o e-mail foi validado
+  // Observação: Logins via Google já possuem emailVerified = true por padrão
+  if (!user.emailVerified) {
+    // Bloquear acesso às informações ou rotas protegidas
+    stopDatabaseSync();
+    tasks = [];
+    render();
+    if (authenticatedArea) authenticatedArea.style.display = 'none';
+    if (authModal) authModal.style.display = 'none';
+    if (resetModal) resetModal.style.display = 'none';
+    if (verificationModal) {
+      if (verifyEmailDisplay) verifyEmailDisplay.textContent = user.email;
+      verificationModal.style.display = 'flex';
+    }
+    hideLoading();
+    return;
+  }
+
+  // 3. Usuário Autenticado e E-mail Verificado (`emailVerified == true`)
+  // Ocultar telas de login/recuperação/verificação e exibir a Área Autenticada
+  if (authModal) authModal.style.display = 'none';
+  if (verificationModal) verificationModal.style.display = 'none';
+  if (resetModal) resetModal.style.display = 'none';
+  if (authenticatedArea) authenticatedArea.style.display = 'flex';
+
+  updateUserProfileUI(user);
+
+  // Iniciar banco de dados Firestore pareado pelo UserID (uid)
+  showLoading("Sincronizando suas tarefas...");
+  await initDatabaseForUser(
+    user, 
+    (loadedTasks) => {
+      tasks = loadedTasks || [];
+      render();
+      hideLoading();
+    },
+    (err) => {
+      console.error("[Sync Error]", err);
+      hideLoading();
+      tasks = [];
+      render();
+      showToast("Não foi possível sincronizar suas tarefas no momento.");
+    }
+  );
+}
+
+// Listeners de Eventos de Autenticação
+if (btnToggleAuthMode) {
+  btnToggleAuthMode.addEventListener('click', () => {
+    setAuthMode(!isRegisterMode);
+  });
+}
+
+if (btnForgotPassword) {
+  btnForgotPassword.addEventListener('click', () => {
+    hideResetAlerts();
+    if (authModal) authModal.style.display = 'none';
+    if (resetModal) {
+      if (authEmailInput && authEmailInput.value) {
+        resetEmailInput.value = authEmailInput.value;
+      }
+      resetModal.style.display = 'flex';
+    }
+  });
+}
+
+if (btnCancelReset) {
+  btnCancelReset.addEventListener('click', () => {
+    if (resetModal) resetModal.style.display = 'none';
+    if (authModal) authModal.style.display = 'flex';
+  });
+}
+
+// Submissão do Formulário de Login / Cadastro
+if (authForm) {
+  authForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    hideAuthError();
+
+    const email = authEmailInput.value.trim();
+    const password = authPasswordInput.value;
+
+    if (!email || !password) {
+      showAuthError("Por favor, preencha todos os campos.");
+      return;
+    }
+
+    if (isRegisterMode) {
+      showLoading("Criando sua conta e enviando e-mail de confirmação...");
+      try {
+        await registerWithEmail(email, password);
+        showToast("Conta criada! Enviamos um e-mail de confirmação.");
+      } catch (err) {
+        hideLoading();
+        // Mensagem genérica e amigável conforme requisito
+        showAuthError("E-mail ou senha incorretos. Por favor, tente novamente.");
+      }
+    } else {
+      showLoading("Entrando na sua conta...");
+      try {
+        await loginWithEmail(email, password);
+        showToast("Login realizado com sucesso!");
+      } catch (err) {
+        hideLoading();
+        // Mensagem genérica e amigável conforme requisito
+        showAuthError("E-mail ou senha incorretos. Por favor, tente novamente.");
+      }
+    }
+  });
+}
+
+// Submissão de Redefinição de Senha
+if (resetPasswordForm) {
+  resetPasswordForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    hideResetAlerts();
+
+    const email = resetEmailInput.value.trim();
+    if (!email) return;
+
+    showLoading("Enviando link de redefinição...");
+    try {
+      await resetPassword(email);
+      hideLoading();
+      if (resetSuccessAlert) resetSuccessAlert.style.display = 'flex';
+    } catch (err) {
+      hideLoading();
+      showResetError("E-mail ou senha incorretos. Por favor, tente novamente.");
+    }
+  });
+}
+
+// Login com Google
+if (btnGoogleLogin) {
+  btnGoogleLogin.addEventListener('click', async () => {
+    hideAuthError();
+    showLoading("Conectando com o Google...");
+    try {
+      await loginWithGoogle();
+      showToast("Conectado com o Google!");
+    } catch (err) {
+      hideLoading();
+      showAuthError("E-mail ou senha incorretos. Por favor, tente novamente.");
+    }
+  });
+}
+
+// Checar Verificação de E-mail
+if (btnCheckVerified) {
+  btnCheckVerified.addEventListener('click', async () => {
+    showLoading("Verificando status de ativação...");
+    try {
+      const isVerified = await checkEmailVerificationStatus();
+      if (isVerified) {
+        showToast("E-mail verificado com sucesso!");
+        // O observeAuthState ou recarga dispara o fluxo
+        if (currentUser) {
+          await handleAuthState(currentUser);
+        }
+      } else {
+        hideLoading();
+        alert("Seu e-mail ainda não consta como confirmado. Por favor, clique no link enviado para a sua caixa de entrada.");
+      }
+    } catch (err) {
+      hideLoading();
+      alert("Erro ao verificar status. Tente novamente.");
+    }
+  });
+}
+
+// Reenviar E-mail de Verificação
+if (btnResendVerification) {
+  btnResendVerification.addEventListener('click', async () => {
+    showLoading("Reenviando e-mail de confirmação...");
+    try {
+      await resendVerificationEmail();
+      hideLoading();
+      showToast("Novo e-mail de confirmação enviado!");
+    } catch (err) {
+      hideLoading();
+      alert(err.message || "Não foi possível reenviar o e-mail no momento.");
+    }
+  });
+}
+
+// Logout da Tela de Verificação
+if (btnVerificationLogout) {
+  btnVerificationLogout.addEventListener('click', async () => {
+    showLoading("Encerrando sessão...");
+    try {
+      await logoutUser();
+    } finally {
+      hideLoading();
+    }
+  });
+}
+
+// Ação de Logout com retorno imediato para a Tela de Login
+async function executeLogout() {
+  if (confirm("Deseja realmente sair da sua conta?")) {
+    showLoading("Encerrando sessão...");
+    try {
+      await logoutUser();
+      showToast("Você saiu da sua conta.");
+    } finally {
+      hideLoading();
+    }
+  }
+}
+
+// Logout no Botão da Sidebar
+if (btnLogout) {
+  btnLogout.addEventListener('click', executeLogout);
+}
+
+// Logout no Botão do Header/Topo da Área Autenticada
+if (btnHeaderLogout) {
+  btnHeaderLogout.addEventListener('click', executeLogout);
+}
+
+
+// Inicialização: Observar Estado de Autenticação
+showLoading("Carregando aplicação...");
+
+// Timeout de segurança: se o Firebase demorar mais de 6s para responder, destrava a tela de login
+const authInitTimeout = setTimeout(() => {
+  hideLoading();
+  if (!currentUser && authModal && authModal.style.display !== 'flex' && (!authenticatedArea || authenticatedArea.style.display !== 'flex')) {
+    authModal.style.display = 'flex';
+  }
+}, 6000);
+
+observeAuthState((user) => {
+  clearTimeout(authInitTimeout);
+  handleAuthState(user);
 });
+
+
