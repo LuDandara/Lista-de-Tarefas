@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tasky - Minhas Tarefas</title>
+  <!-- Google Fonts: Plus Jakarta Sans conforme DESIGN.md -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <div class="app-container">
+    <!-- Sidebar de Navegação -->
+    <aside class="sidebar">
+      <div class="sidebar-top">
+        <div class="brand-header">
+          <div class="brand-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="20 6 9 17 4 12"></polyline>
+            </svg>
+          </div>
+          <span>Tasky ✨</span>
+        </div>
+
+        <nav class="nav-menu">
+          <button class="nav-item active" data-filter="all">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="7" height="7"></rect>
+              <rect x="14" y="3" width="7" height="7"></rect>
+              <rect x="14" y="14" width="7" height="7"></rect>
+              <rect x="3" y="14" width="7" height="7"></rect>
+            </svg>
+            <span>Minhas Tarefas</span>
+            <span class="badge" id="nav-all-count">0</span>
+          </button>
+
+          <button class="nav-item" data-filter="pending">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"></circle>
+              <polyline points="12 6 12 12 16 14"></polyline>
+            </svg>
+            <span>Pendentes</span>
+            <span class="badge" id="nav-pending-count">0</span>
+          </button>
+
+          <button class="nav-item" data-filter="completed">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+              <polyline points="22 4 12 14.01 9 11.01"></polyline>
+            </svg>
+            <span>Concluídas</span>
+            <span class="badge" id="nav-completed-count">0</span>
+          </button>
+        </nav>
+      </div>
+
+      <!-- Perfil de Usuário do Rodapé da Sidebar -->
+      <div class="user-profile-card">
+        <img src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80" alt="Avatar" class="user-avatar">
+        <div class="user-info">
+          <span class="user-name">Alex Morgan</span>
+          <span class="user-plan">Free Plan • 12 Done ✨</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Área Principal -->
+    <main class="main-wrapper">
+      <!-- Topbar com Busca e Ações -->
+      <header class="topbar">
+        <div class="search-container">
+          <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+          <input type="text" id="search-input" class="search-input" placeholder="Buscar tarefas ou palavras-chave...">
+        </div>
+
+        <div class="topbar-actions">
+          <button class="icon-btn" title="Notificações">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+              <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+            </svg>
+          </button>
+          <button class="icon-btn" title="Filtros">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="4" y1="21" x2="4" y2="14"></line>
+              <line x1="4" y1="10" x2="4" y2="3"></line>
+              <line x1="12" y1="21" x2="12" y2="12"></line>
+              <line x1="12" y1="8" x2="12" y2="3"></line>
+              <line x1="20" y1="21" x2="20" y2="16"></line>
+              <line x1="20" y1="12" x2="20" y2="3"></line>
+              <line x1="1" y1="14" x2="7" y2="14"></line>
+              <line x1="9" y1="8" x2="15" y2="8"></line>
+              <line x1="17" y1="16" x2="23" y2="16"></line>
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <!-- Conteúdo de Tarefas -->
+      <div class="content-area">
+        <!-- Cabeçalho do Conteúdo -->
+        <div class="page-header">
+          <div class="title-group">
+            <h1>Minhas Tarefas</h1>
+            <p class="subtitle">Adicione suas tarefas do dia e marque Sim ou Não • <span id="header-subtitle-count">3 pendentes • 1 concluída</span></p>
+          </div>
+
+          <div class="header-controls">
+            <button class="btn-primary" id="btn-open-modal">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+              </svg>
+              <span>Nova Tarefa</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Card de Progresso do Dia -->
+        <div class="progress-banner">
+          <div class="progress-info">
+            <div class="progress-tag">Progresso do Dia</div>
+            <div class="progress-title" id="progress-title">0 de 0 tarefas concluídas (0%)</div>
+            <div class="progress-track">
+              <div class="progress-fill" id="progress-fill" style="width: 0%;"></div>
+            </div>
+          </div>
+
+          <div class="stats-group">
+            <div class="stat-item">
+              <div class="stat-value" id="stat-total">0</div>
+              <div class="stat-label">Total</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-value pending" id="stat-pending">0</div>
+              <div class="stat-label">Pendentes</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-value completed" id="stat-completed">0</div>
+              <div class="stat-label">Concluída</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Barra de Inserção Rápida (Estilo screen.png) -->
+        <form class="quick-add-form" id="quick-add-form">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="12" y1="8" x2="12" y2="16"></line>
+            <line x1="8" y1="12" x2="16" y2="12"></line>
+          </svg>
+          <input type="text" id="quick-add-input" class="quick-add-input" placeholder="Digitar nova tarefa... (Pressione Enter ou clique em Adicionar)" required>
+          <input type="date" id="quick-add-date" class="quick-add-date" title="Definir data de vencimento (opcional)">
+          <button type="submit" class="btn-add">Adicionar</button>
+        </form>
+
+        <!-- Seção: Tarefas Pendentes -->
+        <section class="task-section" id="pending-section">
+          <div class="section-header">
+            <span class="section-title">Tarefas Pendentes <span id="pending-count-badge">(3)</span></span>
+            <span class="section-hint">Marque Sim para concluir</span>
+          </div>
+          <div class="tasks-list" id="pending-tasks-list">
+            <!-- Cards de tarefas pendentes renderizados via JavaScript -->
+          </div>
+        </section>
+
+        <!-- Seção: Tarefas Concluídas -->
+        <section class="task-section" id="completed-section">
+          <div class="section-header">
+            <span class="section-title">Concluídas <span id="completed-count-badge">(1)</span></span>
+          </div>
+          <div class="tasks-list" id="completed-tasks-list">
+            <!-- Cards de tarefas concluídas renderizados via JavaScript -->
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <!-- Modal para Criar / Editar Tarefa com Data -->
+  <div class="modal-overlay" id="task-modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2 id="modal-title">Nova Tarefa</h2>
+        <button class="icon-btn" id="btn-cancel-modal">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+
+      <form id="modal-form" class="modal-form">
+        <input type="hidden" id="modal-task-id">
+        <div class="form-group">
+          <label for="modal-task-input">Título da Tarefa</label>
+          <input type="text" id="modal-task-input" class="form-input" placeholder="Ex: Entregar relatório trimestral" required>
+        </div>
+
+        <div class="form-group">
+          <label for="modal-due-date">Data de Vencimento (Prazo)</label>
+          <input type="date" id="modal-due-date" class="form-input">
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn-secondary" onclick="document.getElementById('task-modal').classList.remove('active')">Cancelar</button>
+          <button type="submit" class="btn-primary">Salvar Tarefa</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Toast de Notificações -->
+  <div id="toast" class="toast">Ação concluída com sucesso!</div>
+
+  <!-- Script da Aplicação -->
+  <script type="module" src="app.js"></script>
+</body>
+</html>
